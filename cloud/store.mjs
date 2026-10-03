@@ -1,4 +1,4 @@
-import { MongoClient } from 'mongodb';
+import { MongoClient, Binary } from 'mongodb';
 
 export const DATABASE_NAME = 'go-celiac-db';
 let client;
@@ -61,7 +61,20 @@ export async function reserveUpload(path, senderId, questionId) {
   });
 }
 export async function ownsUpload(path, senderId, questionId) {
-  return !!await (await database()).collection('uploads').findOne({ _id: path, senderId, questionId });
+  return !!await (await database()).collection('uploads').findOne({ _id: path, senderId, questionId, data: { $exists: true } });
+}
+export async function saveImage(id, senderId, questionId, data, contentType) {
+  if (!await reserveUpload(id, senderId, questionId)) return false;
+  const uploads = (await database()).collection('uploads');
+  const existing = await uploads.findOne({ _id: id }, { projection: { senderId: 1, questionId: 1 } });
+  if (existing.senderId !== senderId || existing.questionId !== questionId) return false;
+  await uploads.updateOne({ _id: id, data: { $exists: false } }, { $set: { data: new Binary(data), contentType } });
+  return true;
+}
+export async function image(id) {
+  const document = await (await database()).collection('uploads').findOne({ _id: id });
+  if (!document?.data || !await question(document.questionId)) return null;
+  return { data: Buffer.from(document.data.buffer), contentType: document.contentType };
 }
 export async function saveQuestion(input) {
   return transaction(async (db, session) => {

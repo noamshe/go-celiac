@@ -15,7 +15,6 @@
     "test:cloud": "node scripts/check-cloud.mjs"
   },
   "dependencies": {
-    "@vercel/blob": "^2.8.0",
     "lucide": "^0.468.0",
     "mongodb": "^7.7.0",
     "ws": "^8.22.0"

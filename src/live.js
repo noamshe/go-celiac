@@ -1,3 +1,4 @@
+import {preparePhoto} from './photo-upload.js';
 let profile;
 let socket;
 let retry;
@@ -29,15 +30,18 @@ export async function api(url,body) {
 export async function submitQuestion(id,text,photos) {
   if(!registration)throw new Error('עדיין מתחברים לקהילה. נסה שוב בעוד רגע.');
   await registration;
-  if(backendConfig.uploads==='blob') {
-    const {upload}=await import('@vercel/blob/client');
+  if(backendConfig.uploads==='mongodb') {
     const images=[];
     for(const photo of photos) {
-      const extensions={'image/png':'png','image/jpeg':'jpg','image/webp':'webp','image/gif':'gif'};
-      const extension=extensions[photo.file.type];
-      if(!extension || photo.file.size>5*1024*1024)throw new Error('בחר תמונות PNG, JPEG, WebP או GIF עד 5MB לתמונה.');
-      photo.uploadPath ||= `photos/${profile.id}/${id}/${requestId()}.${extension}`;
-      photo.cloudImage ||= await upload(photo.uploadPath,photo.file,{access:'public',handleUploadUrl:'/api/upload',contentType:photo.file.type,clientPayload:JSON.stringify({userId:profile.id,questionId:id})});
+      if(photo.uploadQuestion!==id){photo.uploadQuestion=id;photo.uploadId=requestId();photo.cloudImage=null;}
+      if(!photo.cloudImage) {
+        const file=await preparePhoto(photo.file);
+        const response=await fetch(`/api/upload?id=${photo.uploadId}&questionId=${id}`,{method:'POST',headers:{'x-user-id':profile.id,'content-type':file.type},body:file});
+        if(response.status===413)throw new Error('התמונה גדולה מדי. נסה תמונה קטנה יותר.');
+        let result;try{result=await response.json();}catch{throw new Error('לא הצלחנו להעלות את התמונה. נסה שוב.');}
+        if(!response.ok)throw new Error(result.error || 'לא הצלחנו להעלות את התמונה.');
+        photo.cloudImage=result;
+      }
       images.push(photo.cloudImage.url);
     }
     return api('/api/questions',{id,text,images});

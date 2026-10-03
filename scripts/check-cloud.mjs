@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { MongoClient } from 'mongodb';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { WebSocket } from 'ws';
+import { readFile } from 'node:fs/promises';
+import { chromium } from '@playwright/test';
 
 // Run the real driver and transactions against an isolated MongoDB replica set.
 const replica = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
@@ -14,6 +16,7 @@ const {server}=await import('../cloud/community.mjs');
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
 const sockets=[];
+let browser;
 async function api(route, user, data) {
   const response=await fetch(`${base}/api/${route}`,{method:data?'POST':'GET',headers:{'content-type':'application/json',...(user?{'x-user-id':user}:{})},...(data?{body:JSON.stringify(data)}:{})});
   return {status:response.status,...await response.json()};
@@ -37,11 +40,28 @@ try {
   const a=randomUUID(), b=randomUUID(), c=randomUUID(), q=randomUUID(), answer=randomUUID();
   for(const [id,name] of [[a,'א'],[b,'ב'],[c,'ג']])assert.equal((await api('profile',null,{id,name})).status,200);
   const [ma,mb,mc]=await Promise.all([socket(a),socket(b),socket(c)]);
-  assert.equal((await api('questions',a,{id:q,text:'האם מתאים?',images:[]})).status,201);
+  const photoId=randomUUID();
+  const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6ZQAAAABJRU5ErkJggg==','base64');
+  async function upload(user,imageId,questionId,data=png,type='image/png') {
+    return fetch(`${base}/api/upload?id=${imageId}&questionId=${questionId}`,{method:'POST',headers:{'x-user-id':user,'content-type':type},body:data});
+  }
+  const firstUpload=await upload(a,photoId,q);assert.equal(firstUpload.status,201);
+  const photoUrl=(await firstUpload.json()).url;
+  assert.equal((await upload(a,photoId,q)).status,201);
+  assert.equal((await upload(b,photoId,q)).status,400);
+  assert.equal((await upload(a,randomUUID(),q,Buffer.from('<script>bad</script>'))).status,400);
+  assert.equal((await upload(a,randomUUID(),q,Buffer.alloc(2*1024*1024+1))).status,413);
+  assert.equal((await fetch(base+photoUrl)).status,404);
+  assert.equal((await api('questions',b,{id:randomUUID(),text:'wrong owner',images:[photoUrl]})).status,400);
+  assert.equal((await api('questions',a,{id:q,text:'האם מתאים?',images:[photoUrl]})).status,201);
   await until(()=>mb.some(m=>m.type==='question') && mc.some(m=>m.type==='question'));
   assert.equal(ma.filter(m=>m.type==='question').length,0);
   assert.equal((await api('state',a)).questions.length,0);
   assert.equal((await api('state',b)).questions.length,1);
+  assert.deepEqual((await api('state',b)).questions[0].images,[photoUrl]);
+  const served=await fetch(base+photoUrl);assert.equal(served.status,200);
+  assert.equal(served.headers.get('content-type'),'image/png');
+  assert.deepEqual(Buffer.from(await served.arrayBuffer()),png);
   assert.equal((await api('questions',a,{id:q,text:'retry',images:[]})).status,200);
   assert.equal((await api('questions',b,{id:q,text:'other',images:[]})).status,409);
   assert.equal((await api('answers',b,{id:answer,questionId:q,choice:'לא מכיר',text:'תשובה'})).status,201);
@@ -64,11 +84,34 @@ try {
   assert.equal(reserved.filter(Boolean).length,6);
   await closeDatabase();
   assert.equal((await api('state',a)).mine.length,2);
+  assert.deepEqual(Buffer.from(await (await fetch(base+photoUrl)).arrayBuffer()),png);
   assert.equal((await observer.db('other-existing-db').collection('sentinel').findOne({_id:'keep'})).value,'untouched');
   assert.deepEqual(await observer.db('other-existing-db').listCollections().toArray().then(rows=>rows.map(row=>row.name)),['sentinel']);
+  browser=await chromium.launch({channel:'chrome',headless:true});
+  const page=await browser.newPage();
+  const moduleUrl=`data:text/javascript;base64,${Buffer.from(await readFile(new URL('../src/photo-upload.js',import.meta.url))).toString('base64')}`;
+  const compression=await page.evaluate(async url=>{
+    const {preparePhoto}=await import(url);
+    const canvas=document.createElement('canvas');canvas.width=1500;canvas.height=1500;
+    const context=canvas.getContext('2d');const pixels=context.createImageData(1500,1500);
+    let seed=1234;for(let i=0;i<pixels.data.length;i++){seed=(seed*1664525+1013904223)>>>0;pixels.data[i]=i%4===3?255:seed>>>24;}
+    context.putImageData(pixels,0,0);
+    const input=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+    const output=await preparePhoto(input);
+    const decoded=await createImageBitmap(output);
+    const small=new Blob([new Uint8Array(20)],{type:'image/png'});
+    let rejected=false;try{await preparePhoto(new Blob(['bad'],{type:'text/html'}));}catch{rejected=true;}
+    return {before:input.size,after:output.size,type:output.type,width:decoded.width,smallUnchanged:await preparePhoto(small)===small,rejected};
+  },moduleUrl);
+  assert.ok(compression.before>2*1024*1024);
+  assert.ok(compression.after<=2*1024*1024);
+  assert.equal(compression.type,'image/jpeg');assert.ok(compression.width>0);
+  assert.ok(compression.smallUnchanged && compression.rejected);
   console.log('MongoDB transactions, live delivery, retries, concurrent requests, upload limits, reconnect persistence and go-celiac-db isolation passed.');
+  console.log('Browser image compression and small-image preservation passed.');
 } finally {
   for(const ws of sockets)ws.terminate();
   await new Promise(resolve=>server.close(resolve));
   await closeDatabase();await observer.close();await replica.stop();
+  if(browser)await browser.close();
 }
