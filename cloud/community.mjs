@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
+import { pushKeys, subscribe, deliverPush, notifyQuestion, notifyAnswer } from './push.mjs';
 import { configured, database, DATABASE_NAME, snapshot, exists, saveProfile, question, ownsUpload, saveImage, image as storedImage, saveQuestion, saveAnswer, markRead, latestEvent, eventsAfter } from './store.mjs';
 
 const choices=['אני/הילד שלי צורך אותו','ביררתי מול היצרן/יבואן','כתוב על האריזה / יש סימון','ידוע לי שלא מתאים','יש לי מידע נוסף','לא מכיר'];
@@ -35,6 +36,7 @@ export const server=createServer(async(req,res)=>{
       return send(res,{ok:true,uploads:true,storage:'mongodb',database:DATABASE_NAME});
     }
     if(name==='config' && req.method==='GET')return send(res,{uploads:'mongodb',configured:configured()});
+    if(name==='push-key' && req.method==='GET')return send(res,{publicKey:(await pushKeys()).publicKey});
     if(name==='image' && req.method==='GET') {
       const imageId=url.searchParams.get('id');if(!uuid(imageId))fail('תמונה לא נמצאה.',404);
       const photo=await storedImage(imageId);if(!photo)fail('תמונה לא נמצאה.',404);
@@ -49,6 +51,14 @@ export const server=createServer(async(req,res)=>{
     }
     const id=req.headers['x-user-id'];
     if(!uuid(id) || !(await exists(id)))fail('נדרש פרופיל משתמש.',401);
+    if(name==='push-subscribe' && req.method==='POST') {
+      await subscribe(id,await body(req));return send(res,{ok:true});
+    }
+    if(name==='push-test' && req.method==='POST') {
+      const result=await deliverPush({userId:id},{title:'ביחד · התראת ניסיון',body:'ההתראות פועלות! לחץ כדי לפתוח את השאלות בקהילה.',url:'/#help',tag:'push-test'});
+      if(!result.sent)fail(result.failed?'שליחת ההתראה נכשלה. נסה להפעיל התראות מחדש.':'אפשר התראות במכשיר הזה לפני הניסיון.',503);
+      return send(res,{ok:true,sent:result.sent});
+    }
     if(name==='upload' && req.method==='POST') {
       const imageId=url.searchParams.get('id'),questionId=url.searchParams.get('questionId');
       if(!uuid(imageId) || !uuid(questionId))fail('בקשת העלאה לא תקינה.');
@@ -73,16 +83,21 @@ export const server=createServer(async(req,res)=>{
         if(!uuid(imageId) || !await ownsUpload(imageId,id,input.id))fail('תמונה לא תקינה לשאלה.');
         images.push(image);
       }
-      if(!await saveQuestion({id:input.id,senderId:id,text:questionText,images,createdAt:Date.now()}))fail('מזהה שאלה כבר קיים.',409);
-      void flush();return send(res,{id:input.id},201);
+      const saved=await saveQuestion({id:input.id,senderId:id,text:questionText,images,createdAt:Date.now()});
+      if(!saved.owned)fail('מזהה שאלה כבר קיים.',409);
+      void flush();
+      if(saved.created)await notifyQuestion(id,input.id).catch(error=>console.error('Push dispatch failed:',error.name));
+      return send(res,{id:input.id},201);
     }
     if(name==='answers' && req.method==='POST') {
       const input=await body(req);if(!uuid(input.id) || !uuid(input.questionId) || !choices.includes(input.choice))fail('תשובה לא תקינה.');
       const answerText=text(input.text || '',2000);
       const target=await question(input.questionId);
       if(!target)fail('השאלה לא נמצאה.',404);if(target.senderId===id)fail('לא ניתן לענות לשאלה של עצמך.');
-      const answerId=await saveAnswer({id:input.id,questionId:input.questionId,senderId:id,recipientId:target.senderId,choice:input.choice,text:answerText,createdAt:Date.now()});
-      void flush();return send(res,{id:answerId},201);
+      const saved=await saveAnswer({id:input.id,questionId:input.questionId,senderId:id,recipientId:target.senderId,choice:input.choice,text:answerText,createdAt:Date.now()});
+      void flush();
+      if(saved.created)await notifyAnswer(target.senderId,input.questionId).catch(error=>console.error('Push dispatch failed:',error.name));
+      return send(res,{id:saved.id},201);
     }
     if(name==='read' && req.method==='POST') {
       const input=await body(req);if(!Array.isArray(input.ids) || input.ids.length>1000 || !input.ids.every(uuid))fail('מזהים לא תקינים.');

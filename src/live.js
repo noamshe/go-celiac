@@ -64,6 +64,7 @@ export function connectProfile(next) {
         backendConfig=await api('/api/config');
       })();
       await registration;
+      window.dispatchEvent(new Event('community-connected'));
       if (version!==generation) return;
       const active=new WebSocket(`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/live?id=${encodeURIComponent(profile.id)}`);
       socket=active;

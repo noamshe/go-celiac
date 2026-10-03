@@ -80,20 +80,20 @@ export async function saveQuestion(input) {
   return transaction(async (db, session) => {
     const collection = db.collection('questions');
     const existing = await collection.findOne({ _id: input.id }, { session });
-    if (existing) return existing.senderId === input.senderId;
+    if (existing) return {owned:existing.senderId === input.senderId,created:false};
     const sequence = await event(db, session, { type: 'question', senderId: input.senderId, questionId: input.id });
     await collection.insertOne({ _id: input.id, ...input, sequence }, { session });
-    return true;
+    return {owned:true,created:true};
   });
 }
 export async function saveAnswer(input) {
   return transaction(async (db, session) => {
     const collection = db.collection('answers');
     const existing = await collection.findOne({ questionId: input.questionId, senderId: input.senderId }, { session });
-    if (existing) return existing.id;
+    if (existing) return {id:existing.id,created:false};
     await collection.insertOne({ _id: input.id, ...input, readAt: null }, { session });
     await event(db, session, { type: 'answer', senderId: input.senderId, recipientId: input.recipientId, questionId: input.questionId });
-    return input.id;
+    return {id:input.id,created:true};
   });
 }
 export async function markRead(ids, recipientId) {
