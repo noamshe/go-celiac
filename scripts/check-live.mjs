@@ -39,6 +39,11 @@ try {
   await a.page.getByRole('button',{name:/אני צריך עזרה/}).click();
   await a.page.locator('#gallery-input').setInputFiles('public/icons/icon-192.png');
   await a.page.locator('#question-text').fill('שאלה ראשונה עם תמונה');
+  await a.page.route('**/api/questions',route=>route.fulfill({status:404,contentType:'text/plain',body:'The page could not be found.'}),{times:1});
+  await a.page.getByRole('button',{name:'שאל את הקהילה',exact:true}).click();
+  await a.page.waitForFunction(()=>document.querySelector('#ask-status').textContent.includes('שרת הקהילה לא זמין'));
+  assert.equal(await a.page.locator('.image-thumbnail').count(),1);
+  assert.equal(await a.page.locator('#question-text').inputValue(),'שאלה ראשונה עם תמונה');
   await a.page.getByRole('button',{name:'שאל את הקהילה',exact:true}).click();
   await a.page.waitForURL('**/#inbox');
   await badge(b,'#help-badge',1);await badge(c,'#help-badge',1);await badge(a,'#help-badge',0);

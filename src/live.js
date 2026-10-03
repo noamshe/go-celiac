@@ -14,7 +14,13 @@ export async function api(url,body) {
   const headers={'x-user-id':profile?.id || ''};
   if (body && !(body instanceof FormData)) headers['Content-Type']='application/json';
   const response=await fetch(url,{method:body ? 'POST':'GET',headers,body:body instanceof FormData ? body : body ? JSON.stringify(body):undefined});
-  const result=await response.json();
+  if(response.status===413)throw new Error('התמונות גדולות מדי לשרת. נסה תמונות קטנות יותר.');
+  const raw=await response.text();
+  let result;
+  try { result=JSON.parse(raw); }
+  catch {
+    throw new Error('שרת הקהילה לא זמין בכתובת הזו. יש להגדיר את שירות השאלות והאחסון בפריסה.');
+  }
   if (!response.ok) throw new Error(result.error || 'לא הצלחנו להתחבר לשרת.');
   return result;
 }
