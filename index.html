@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f8f9f5" />
+    <meta name="description" content="מקום לשאול, לשתף ולעזור. הקהילה שלך לחיים ללא גלוטן." />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>ביחד — הקהילה שלך ללא גלוטן</title>
+  </head>
+  <body>
+    <div class="app">
+      <header class="header">
+        <a class="brand" href="/" aria-label="ביחד — דף הבית">
+          <span class="brand-mark"><i data-lucide="sprout"></i></span>
+          <span class="brand-name">ביחד<span class="brand-description">הקהילה שלך ללא גלוטן</span></span>
+        </a>
+        <button id="edit-profile" class="profile-button" type="button" hidden aria-label="שינוי שם"><i data-lucide="user-round"></i><span id="profile-name"></span></button>
+      </header>
+      <main>
+        <section id="welcome-screen" class="welcome-screen" aria-labelledby="welcome-title" hidden>
+          <span class="welcome-icon"><i data-lucide="heart-handshake"></i></span>
+          <span class="welcome-eyebrow">הקהילה שלך ללא גלוטן</span>
+          <h1 id="welcome-title" tabindex="-1">נעים להכיר.</h1>
+          <p class="welcome-intro">לפני שמתחילים, איך קוראים לך?<br />זה השם שיופיע לצד השאלות והעזרה שלך.</p>
+          <form id="profile-form" novalidate>
+            <label class="question-label" for="display-name">השם שלך</label>
+            <input id="display-name" class="name-input" name="name" type="text" autocomplete="given-name" maxlength="40" placeholder="איך לקרוא לך?" required aria-describedby="profile-status" />
+            <p id="profile-status" class="profile-status" role="status"></p>
+            <button id="profile-submit" class="ask-submit" type="submit"><span>בואו נתחיל</span><i data-lucide="arrow-left"></i></button>
+            <button id="cancel-profile" class="cancel-profile" type="button" hidden>ביטול</button>
+          </form>
+          <div class="notification-opt-in">
+            <button id="enable-notifications" class="notification-opt-in-button" type="button"><i data-lucide="bell"></i><span>אפשר התראות במכשיר הזה</span></button>
+            <p id="notification-permission-status" class="notification-status" role="status">לא חובה — אפשר להמשיך גם בלי התראות.</p>
+          </div>
+          <p class="welcome-note"><i data-lucide="check"></i> השם נשמר במכשיר הזה, לפעם הבאה</p>
+        </section>
+        <div id="home-screen" hidden>
+        <section class="actions" aria-label="איך אפשר לעזור היום?">
+          <button class="action-card primary" type="button">
+            <span id="reply-badge" class="notification-badge" hidden></span>
+            <span class="card-top"><span class="action-icon"><i data-lucide="camera"></i></span><span class="card-label">הקהילה כאן בשבילך</span></span>
+            <span class="card-bottom"><span class="action-copy"><span class="action-title">אני צריך עזרה</span><span class="action-subtitle">צלם מוצר ושאל את הקהילה</span></span><span class="action-arrow"><i data-lucide="arrow-left"></i></span></span>
+          </button>
+          <button class="action-card secondary" type="button">
+            <span id="help-badge" class="notification-badge" hidden></span>
+            <span class="card-top"><span class="action-icon"><i data-lucide="hand-heart"></i></span><span class="card-label">הידע שלך עושה הבדל</span></span>
+            <span class="card-bottom"><span class="action-copy"><span class="action-title">אני רוצה לעזור</span><span class="action-subtitle">עזור לאחרים עם מה שאתה יודע</span></span><span class="action-arrow"><i data-lucide="arrow-left"></i></span></span>
+          </button>
+        </section>
+        <div class="community-note"><span class="note-icon"><i data-lucide="heart-handshake"></i></span><span>אנשים שמבינים אותך. קהילה שאכפת לה.</span></div>
+        <button id="open-inbox" class="cancel-profile" type="button">השאלות והתשובות שלי</button>
+        </div>
+        <section id="ask-screen" class="ask-screen" hidden aria-labelledby="ask-title">
+          <button id="back-home" class="back-button" type="button"><i data-lucide="arrow-right"></i> חזרה לבית</button>
+          <h1 id="ask-title" tabindex="-1">שואלים את הקהילה</h1>
+          <p class="ask-intro">יש מוצר שמעלה שאלה? הוסף תמונה וננסה לעזור.</p>
+          <form id="ask-form">
+            <div class="upload-panel">
+              <span class="upload-icon"><i data-lucide="image-plus"></i></span>
+              <h2>מתחילים בתמונה</h2>
+              <p>צלם את המוצר או בחר תמונות מהגלריה</p>
+              <div class="upload-actions">
+                <button id="choose-gallery" class="upload-button" type="button"><i data-lucide="images"></i> בחירה מהגלריה</button>
+                <button id="take-photo" class="upload-button camera-button" type="button"><i data-lucide="camera"></i> צילום תמונה</button>
+              </div>
+              <input id="gallery-input" type="file" accept="image/*" multiple hidden />
+              <input id="camera-input" type="file" accept="image/*" capture="environment" hidden />
+            </div>
+            <div id="image-previews" class="image-previews" aria-label="תמונות שנבחרו"></div>
+            <p id="upload-status" class="upload-status" role="status"></p>
+            <label class="question-label" for="question-text">מה תרצה לשאול?</label>
+            <textarea id="question-text" placeholder="למשל, האם המוצר הזה ללא גלוטן?" rows="4" maxlength="2000"></textarea>
+            <button class="ask-submit" type="submit"><span>שאל את הקהילה</span><i data-lucide="arrow-left"></i></button>
+            <p id="ask-status" class="ask-status" role="status"></p>
+          </form>
+          <section class="ask-history" aria-labelledby="history-title">
+            <h2 id="history-title">השאלות הקודמות שלי</h2>
+            <div id="ask-history-list"></div>
+          </section>
+        </section>
+        <section id="help-screen" class="help-screen" hidden aria-labelledby="help-title">
+          <button id="back-from-help" class="back-button" type="button"><i data-lucide="arrow-right"></i> חזרה לבית</button>
+          <div class="help-heading"><h1 id="help-title" tabindex="-1">עוזרים לקהילה</h1><span id="question-count" class="demo-label"></span></div>
+          <p class="ask-intro">משהו שאתה יודע יכול לעשות למישהו את היום.</p>
+          <div id="question-list"></div>
+          <template id="answer-template"><div class="question-answer-options">
+            <h2 class="answer-heading">מה ידוע לך על המוצר?</h2>
+            <p class="answer-hint">בחר תשובה, ואפשר להוסיף כמה מילים.</p>
+            <div class="answer-options">
+              <button class="answer-option" type="button"><i data-lucide="users"></i><span>אני/הילד שלי צורך אותו</span><i data-lucide="chevron-left"></i></button>
+              <button class="answer-option" type="button"><i data-lucide="factory"></i><span>ביררתי מול היצרן/יבואן</span><i data-lucide="chevron-left"></i></button>
+              <button class="answer-option" type="button"><i data-lucide="badge-check"></i><span>כתוב על האריזה / יש סימון</span><i data-lucide="chevron-left"></i></button>
+              <button class="answer-option caution" type="button"><i data-lucide="triangle-alert"></i><span>ידוע לי שלא מתאים</span><i data-lucide="chevron-left"></i></button>
+              <button class="answer-option" type="button"><i data-lucide="message-square"></i><span>יש לי מידע נוסף</span><i data-lucide="chevron-left"></i></button>
+              <button class="answer-option" type="button"><i data-lucide="circle-help"></i><span>לא מכיר</span><i data-lucide="chevron-left"></i></button>
+            </div>
+          </div>
+          </template>
+          <div class="notification-test"><button id="test-notification" class="notification-opt-in-button" type="button"><i data-lucide="bell"></i> נסה התראת דוגמה</button><p id="notification-demo-status" class="notification-status" role="status"></p></div>
+        </section>
+        <section id="inbox-screen" class="help-screen" hidden aria-labelledby="inbox-title">
+          <button id="back-inbox" class="back-button" type="button"><i data-lucide="arrow-right"></i> חזרה לבית</button>
+          <h1 id="inbox-title" tabindex="-1">השאלות והתשובות שלי</h1>
+          <button id="new-question" class="ask-submit" type="button">שאלה חדשה לקהילה</button>
+          <div id="inbox-list"></div>
+        </section>
+      </main>
+      <dialog id="answer-dialog" class="answer-dialog" aria-labelledby="answer-dialog-title">
+        <button id="close-answer" class="dialog-close" type="button" aria-label="סגירה"><i data-lucide="x"></i></button>
+        <h2 id="answer-dialog-title">התשובה שלך</h2>
+        <p id="selected-answer" class="selected-answer"></p>
+        <form id="answer-form">
+          <label class="question-label" for="answer-text">רוצה להוסיף משהו? <span class="optional-label">(לא חובה)</span></label>
+          <textarea id="answer-text" rows="4" maxlength="2000" placeholder="אפשר לשתף ניסיון, מקור מידע או פרט נוסף…"></textarea>
+          <p id="answer-status" class="profile-status" role="status"></p>
+          <button class="ask-submit" type="submit"><span>ענה</span><i data-lucide="arrow-left"></i></button>
+          <button id="cancel-answer" class="cancel-profile" type="button">ביטול</button>
+        </form>
+      </dialog>
+      <dialog id="photo-viewer" class="photo-viewer" aria-label="תצוגת תמונה">
+        <button id="close-photo" class="photo-close" type="button" aria-label="סגירת התמונה">×</button>
+        <div class="photo-scroll"><div class="photo-canvas"><img id="full-photo" alt="" /></div></div>
+        <div class="photo-zoom-controls"><button id="photo-zoom-out" type="button" aria-label="הקטנת תמונה">−</button><button id="photo-zoom-reset" type="button" aria-label="איפוס גודל התמונה">100%</button><button id="photo-zoom-in" type="button" aria-label="הגדלת תמונה">+</button></div>
+      </dialog>
+      <footer><span>ביחד, בחיים ללא גלוטן</span><span class="footer-dot">·</span><span id="live-status" role="status">מתחברים לקהילה…</span></footer>
+      <button id="live-toast" class="live-toast" hidden type="button" aria-live="polite"></button>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
