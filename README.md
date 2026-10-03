@@ -35,9 +35,9 @@ The service worker caches the app shell and viewed images; API responses are nev
 
 ## Vercel
 
-The root Vercel deployment builds the UI and deploys `api/server.mjs`. It uses Postgres instead of SQLite and public Vercel Blob storage for photos. In the project's Storage tab, connect a Neon Postgres database and a **public** Blob store to the production environment. Confirm `DATABASE_URL` (or `POSTGRES_URL`) and `BLOB_READ_WRITE_TOKEN` are present in server environment variables, then redeploy. Never prefix these secrets with `VITE_` or commit them. The schema initializes automatically. Local SQLite data is not migrated.
+The root Vercel deployment builds the UI and deploys `api/server.mjs`. It uses MongoDB Atlas and public Vercel Blob storage for photos. Set `MONGODB_URI` in the production server environment and connect a **public** Blob store to supply `BLOB_READ_WRITE_TOKEN`, then redeploy. Never prefix these secrets with `VITE_` or commit them. The database is explicitly named **go-celiac-db**, overriding any default database in the connection URL. Collections and indexes initialize automatically; other databases are not modified. The Atlas database user needs read/write access to go-celiac-db, and Atlas Network Access must allow connections from the deployment. Local SQLite data is not migrated.
 
-Enable Fluid compute for the project's functions. WebSocket connections reconnect when the function reaches its maximum duration. A durable Postgres event log coordinates updates across function instances; live clients check it every 1.5 seconds. Photos upload directly to Blob, bypassing the function request size limit. `/api/health` reports database availability and whether photo storage is configured.
+Enable Fluid compute for the project's functions. WebSocket connections reconnect when the function reaches its maximum duration. A durable MongoDB event log coordinates updates across function instances; live clients check it every 1.5 seconds. Database writes and events commit together using Atlas transactions. Photos upload directly to Blob, bypassing the function request size limit. `/api/health` reports database availability, its name and whether photo storage is configured.
 
 ## Verification
 
@@ -49,4 +49,4 @@ npm run test:cloud
 
 The automated browser test starts an isolated server and three browser profiles, checks question/photo delivery, sender exclusion, chronological ordering, answers, badge counts, read acknowledgments, reconnect catch-up and database/photo persistence across a server restart.
 
-The cloud test executes the production SQL against embedded Postgres and checks API routes, WebSocket delivery, ownership and retries. Actual Blob uploads require the connected Vercel store and a deployed end-to-end check.
+The cloud test uses an isolated MongoDB replica set with the real driver and transactions. It checks API routes, WebSocket delivery, ownership, retries, concurrent writes, photo reservation limits, reconnect persistence and isolation from another database. The first run downloads a MongoDB test binary. Actual Blob uploads require the connected Vercel store and a deployed end-to-end check.

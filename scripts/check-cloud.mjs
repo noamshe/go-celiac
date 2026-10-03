@@ -1,23 +1,15 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import pg from 'pg';
-import { PGlite } from '@electric-sql/pglite';
+import { MongoClient } from 'mongodb';
+import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { WebSocket } from 'ws';
 
-// Execute the production SQL against embedded Postgres without cloud credentials.
-const db = new PGlite();
-let queue = Promise.resolve();
-let unlock;
-function direct(sql, args) {
-  return args ? db.query(sql,args).then(result=>({...result,rowCount:result.affectedRows ?? result.rows.length})) : db.exec(sql);
-}
-pg.Pool.prototype.query = function(sql,args) {
-  const result=queue.then(()=>direct(sql,args));queue=result.catch(()=>{});return result;
-};
-pg.Pool.prototype.connect = async function() {
-  const previous=queue;queue=new Promise(resolve=>{unlock=resolve;});const release=unlock;await previous;
-  return {query:direct,release};
-};
+// Run the real driver and transactions against an isolated MongoDB replica set.
+const replica = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
+const {closeDatabase, database, reserveUpload}=await import('../cloud/store.mjs');
+const observer=new MongoClient(replica.getUri('other-existing-db'));
+await observer.connect();
+await observer.db('other-existing-db').collection('sentinel').insertOne({_id:'keep',value:'untouched'});
 const {server}=await import('../cloud/community.mjs');
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
@@ -37,10 +29,11 @@ async function socket(id) {
   return messages;
 }
 try {
-  delete process.env.DATABASE_URL;delete process.env.POSTGRES_URL;
+  delete process.env.MONGODB_URI;
   assert.equal((await api('health')).status,503);
-  process.env.DATABASE_URL='postgres://embedded-test';
+  process.env.MONGODB_URI=replica.getUri('other-existing-db');
   assert.equal((await api('health')).status,200);
+  assert.equal((await api('health')).database,'go-celiac-db');
   const a=randomUUID(), b=randomUUID(), c=randomUUID(), q=randomUUID(), answer=randomUUID();
   for(const [id,name] of [[a,'א'],[b,'ב'],[c,'ג']])assert.equal((await api('profile',null,{id,name})).status,200);
   const [ma,mb,mc]=await Promise.all([socket(a),socket(b),socket(c)]);
@@ -59,9 +52,23 @@ try {
   await api('read',c,{ids:[answer]});assert.equal((await api('state',a)).unread,1);
   await api('read',a,{ids:[answer]});assert.equal((await api('state',a)).unread,0);
   assert.equal((await api('questions',a,{id:randomUUID(),text:'bad',images:['https://example.com/image.png']})).status,400);
-  console.log('Vercel routes, real Postgres SQL, live delivery, identity exclusion, retries, answer routing and read ownership passed.');
+  // Concurrent requests cannot create duplicate questions/answers or exceed photo limits.
+  const next=randomUUID();
+  await Promise.all(Array.from({length:4},()=>api('questions',a,{id:next,text:'retry concurrently',images:[]})));
+  assert.equal(await (await database()).collection('questions').countDocuments({_id:next}),1);
+  const replies=await Promise.all(Array.from({length:4},()=>api('answers',c,{id:randomUUID(),questionId:next,choice:'לא מכיר',text:''})));
+  assert.ok(replies.every(reply=>reply.status===201));
+  assert.equal(new Set(replies.map(reply=>reply.id)).size,1);
+  const uploadQuestion=randomUUID();
+  const reserved=await Promise.all(Array.from({length:8},()=>reserveUpload(`photos/${a}/${uploadQuestion}/${randomUUID()}.png`,a,uploadQuestion)));
+  assert.equal(reserved.filter(Boolean).length,6);
+  await closeDatabase();
+  assert.equal((await api('state',a)).mine.length,2);
+  assert.equal((await observer.db('other-existing-db').collection('sentinel').findOne({_id:'keep'})).value,'untouched');
+  assert.deepEqual(await observer.db('other-existing-db').listCollections().toArray().then(rows=>rows.map(row=>row.name)),['sentinel']);
+  console.log('MongoDB transactions, live delivery, retries, concurrent requests, upload limits, reconnect persistence and go-celiac-db isolation passed.');
 } finally {
   for(const ws of sockets)ws.terminate();
   await new Promise(resolve=>server.close(resolve));
-  await queue;await db.close();
+  await closeDatabase();await observer.close();await replica.stop();
 }

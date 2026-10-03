@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { handleUpload } from '@vercel/blob/client';
 import { head } from '@vercel/blob';
-import { configured, query, transaction, snapshot, exists } from './store.mjs';
+import { configured, database, DATABASE_NAME, snapshot, exists, saveProfile, question, reserveUpload, ownsUpload, saveQuestion, saveAnswer, markRead, latestEvent, eventsAfter } from './store.mjs';
 
 const choices=['אני/הילד שלי צורך אותו','ביררתי מול היצרן/יבואן','כתוב על האריזה / יש סימון','ידוע לי שלא מתאים','יש לי מידע נוסף','לא מכיר'];
 const uuid=value=>typeof value==='string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -18,18 +18,15 @@ export const server=createServer(async(req,res)=>{
     const {name}=route(req);
     if(!originAllowed(req))fail('מקור בקשה לא מורשה.',403);
     if(name==='health') {
-      if(!configured())return send(res,{ok:false,missing:['DATABASE_URL'],error:'יש לחבר Postgres לפרויקט.'},503);
-      await query('SELECT 1');
-      return send(res,{ok:true,uploads:!!process.env.BLOB_READ_WRITE_TOKEN,storage:'postgres'});
+      if(!configured())return send(res,{ok:false,missing:['MONGODB_URI'],error:'יש לחבר MongoDB Atlas לפרויקט.'},503);
+      await (await database()).command({ping:1});
+      return send(res,{ok:true,uploads:!!process.env.BLOB_READ_WRITE_TOKEN,storage:'mongodb',database:DATABASE_NAME});
     }
     if(name==='config' && req.method==='GET')return send(res,{uploads:'blob',configured:configured() && !!process.env.BLOB_READ_WRITE_TOKEN});
     if(name==='profile' && req.method==='POST') {
       const input=await body(req);if(!uuid(input.id))fail('מזהה משתמש לא תקין.');
       const name=text(input.name,40);if(!name)fail('נדרש שם.');
-      await transaction(async db=>{
-        await db.query('INSERT INTO community_users VALUES($1,$2) ON CONFLICT(id) DO UPDATE SET name=excluded.name',[input.id,name]);
-        await db.query('INSERT INTO community_events(payload) VALUES($1)',[JSON.stringify({type:'refresh'})]);
-      });
+      await saveProfile(input.id,name);
       void flush();return send(res,{ok:true});
     }
     if(name==='upload' && req.method==='POST') {
@@ -42,10 +39,7 @@ export const server=createServer(async(req,res)=>{
           if(!uuid(userId) || !uuid(questionId) || !(await exists(userId)))fail('נדרש פרופיל משתמש.',401);
           const prefix=`photos/${userId}/${questionId}/`;
           if(!pathname.startsWith(prefix) || !/^[0-9a-f-]{36}\.(png|jpg|jpeg|webp|gif)$/.test(pathname.slice(prefix.length)))fail('נתיב תמונה לא תקין.');
-          const count=(await query('SELECT COUNT(*)::int count FROM community_uploads WHERE "senderId"=$1 AND "questionId"=$2',[userId,questionId])).rows[0].count;
-          const retry=(await query('SELECT path FROM community_uploads WHERE path=$1',[pathname])).rows[0];
-          if(count>=6 && !retry)fail('עד 6 תמונות לשאלה.');
-          await query('INSERT INTO community_uploads VALUES($1,$2,$3) ON CONFLICT(path) DO NOTHING',[pathname,userId,questionId]);
+          if(!await reserveUpload(pathname,userId,questionId))fail('עד 6 תמונות לשאלה.');
           return {allowedContentTypes:['image/jpeg','image/png','image/webp','image/gif'],maximumSizeInBytes:5*1024*1024,addRandomSuffix:false,tokenPayload:JSON.stringify(payload),callbackUrl:`${process.env.VERCEL?'https':'http'}://${req.headers.host}/api/upload`};
         },
         onUploadCompleted:async()=>{},
@@ -58,7 +52,7 @@ export const server=createServer(async(req,res)=>{
     if(name==='questions' && req.method==='POST') {
       const input=await body(req);
       if(!uuid(input.id))fail('מזהה שאלה לא תקין.');
-      const existing=(await query('SELECT "senderId" FROM community_questions WHERE id=$1',[input.id])).rows[0];
+      const existing=await question(input.id);
       if(existing){if(existing.senderId!==id)fail('מזהה שאלה כבר קיים.',409);return send(res,{id:input.id});}
       const questionText=text(input.text || '',2000);
       if(!Array.isArray(input.images) || input.images.length>6 || (!questionText && !input.images.length))fail('הוסף שאלה או עד 6 תמונות.');
@@ -66,34 +60,24 @@ export const server=createServer(async(req,res)=>{
       for(const image of input.images) {
         if(typeof image!=='string' || !/^https:\/\/[a-z0-9-]+\.public\.blob\.vercel-storage\.com\//i.test(image))fail('כתובת תמונה לא תקינה.');
         const metadata=await head(image);
-        const upload=(await query('SELECT path FROM community_uploads WHERE path=$1 AND "senderId"=$2 AND "questionId"=$3',[metadata.pathname,id,input.id])).rows[0];
+        const upload=await ownsUpload(metadata.pathname,id,input.id);
         if(!upload || metadata.size>5*1024*1024 || !['image/jpeg','image/png','image/webp','image/gif'].includes(metadata.contentType))fail('תמונה לא תקינה לשאלה.');
         images.push(metadata.url);
       }
-      await transaction(async db=>{
-        const result=await db.query('INSERT INTO community_questions(id,"senderId",text,images,"createdAt") VALUES($1,$2,$3,$4,$5) ON CONFLICT(id) DO NOTHING RETURNING id',[input.id,id,questionText,JSON.stringify(images),Date.now()]);
-        if(!result.rowCount && (await db.query('SELECT "senderId" FROM community_questions WHERE id=$1',[input.id])).rows[0]?.senderId!==id)fail('Question ID already exists.',409);
-        if(result.rowCount)await db.query('INSERT INTO community_events(payload) VALUES($1)',[JSON.stringify({type:'question',senderId:id,questionId:input.id})]);
-      });
+      if(!await saveQuestion({id:input.id,senderId:id,text:questionText,images,createdAt:Date.now()}))fail('מזהה שאלה כבר קיים.',409);
       void flush();return send(res,{id:input.id},201);
     }
     if(name==='answers' && req.method==='POST') {
       const input=await body(req);if(!uuid(input.id) || !uuid(input.questionId) || !choices.includes(input.choice))fail('תשובה לא תקינה.');
       const answerText=text(input.text || '',2000);
-      const question=(await query('SELECT "senderId" FROM community_questions WHERE id=$1',[input.questionId])).rows[0];
-      if(!question)fail('השאלה לא נמצאה.',404);if(question.senderId===id)fail('לא ניתן לענות לשאלה של עצמך.');
-      await transaction(async db=>{
-        const result=await db.query('INSERT INTO community_answers VALUES($1,$2,$3,$4,$5,$6,NULL) ON CONFLICT("questionId","senderId") DO NOTHING RETURNING id',[input.id,input.questionId,id,input.choice,answerText,Date.now()]);
-        if(result.rowCount)await db.query('INSERT INTO community_events(payload) VALUES($1)',[JSON.stringify({type:'answer',senderId:id,recipientId:question.senderId,questionId:input.questionId})]);
-      });
-      void flush();return send(res,{id:input.id},201);
+      const target=await question(input.questionId);
+      if(!target)fail('השאלה לא נמצאה.',404);if(target.senderId===id)fail('לא ניתן לענות לשאלה של עצמך.');
+      const answerId=await saveAnswer({id:input.id,questionId:input.questionId,senderId:id,recipientId:target.senderId,choice:input.choice,text:answerText,createdAt:Date.now()});
+      void flush();return send(res,{id:answerId},201);
     }
     if(name==='read' && req.method==='POST') {
       const input=await body(req);if(!Array.isArray(input.ids) || input.ids.length>1000 || !input.ids.every(uuid))fail('מזהים לא תקינים.');
-      await transaction(async db=>{
-        const result=await db.query('UPDATE community_answers SET "readAt"=$1 WHERE id=ANY($2::text[]) AND "questionId" IN(SELECT id FROM community_questions WHERE "senderId"=$3) AND "readAt" IS NULL',[Date.now(),input.ids,id]);
-        if(result.rowCount)await db.query('INSERT INTO community_events(payload) VALUES($1)',[JSON.stringify({type:'refresh'})]);
-      });
+      await markRead(input.ids,id);
       void flush();return send(res,{ok:true});
     }
     fail('לא נמצא.',404);
@@ -104,7 +88,7 @@ server.on('upgrade',async(req,socket,head)=>{
   try {
     const {url,name}=route(req);const id=url.searchParams.get('id');
     if(name!=='live' || !originAllowed(req) || !uuid(id) || !(await exists(id)))throw new Error('Unauthorized');
-    const cursor=Number((await query('SELECT COALESCE(MAX(id),0) id FROM community_events')).rows[0].id);
+    const cursor=await latestEvent();
     wss.handleUpgrade(req,socket,head,ws=>{ws.userId=id;ws.cursor=cursor;wss.emit('connection',ws);});
   }catch{socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');socket.destroy();}
 });
@@ -123,7 +107,7 @@ async function flush() {
     const sockets=[...wss.clients].filter(ws=>ws.readyState===WebSocket.OPEN);
     if(!sockets.length)return;
     const min=Math.min(...sockets.map(ws=>ws.cursor));
-    const events=(await query('SELECT id,payload FROM community_events WHERE id>$1 ORDER BY id LIMIT 200',[min])).rows;
+    const events=await eventsAfter(min);
     if(!events.length)return;
     const states=new Map();
     for(const socket of sockets) {
