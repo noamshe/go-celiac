@@ -51,6 +51,7 @@ const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}` && req.headers.origin !== `https://${req.headers.host}`) fail('מקור בקשה לא מורשה.', 403);
     if (url.pathname === '/api/health') return json(res, { ok: true });
+    if (url.pathname === '/api/config' && req.method === 'GET') return json(res, { uploads:'local',configured:true });
     if (url.pathname === '/api/profile' && req.method === 'POST') {
       const profile = await parseJson(req);
       if (!uuid(profile.id)) fail('מזהה משתמש לא תקין.');

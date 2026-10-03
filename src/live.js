@@ -2,6 +2,8 @@ let profile;
 let socket;
 let retry;
 let generation=0;
+let registration;
+let backendConfig={uploads:'local'};
 let state={questions:[],mine:[],answers:[],unread:0};
 export const currentState=() => state;
 export function requestId() {
@@ -24,6 +26,26 @@ export async function api(url,body) {
   if (!response.ok) throw new Error(result.error || 'לא הצלחנו להתחבר לשרת.');
   return result;
 }
+export async function submitQuestion(id,text,photos) {
+  if(!registration)throw new Error('עדיין מתחברים לקהילה. נסה שוב בעוד רגע.');
+  await registration;
+  if(backendConfig.uploads==='blob') {
+    const {upload}=await import('@vercel/blob/client');
+    const images=[];
+    for(const photo of photos) {
+      const extensions={'image/png':'png','image/jpeg':'jpg','image/webp':'webp','image/gif':'gif'};
+      const extension=extensions[photo.file.type];
+      if(!extension || photo.file.size>5*1024*1024)throw new Error('בחר תמונות PNG, JPEG, WebP או GIF עד 5MB לתמונה.');
+      photo.uploadPath ||= `photos/${profile.id}/${id}/${requestId()}.${extension}`;
+      photo.cloudImage ||= await upload(photo.uploadPath,photo.file,{access:'public',handleUploadUrl:'/api/upload',contentType:photo.file.type,clientPayload:JSON.stringify({userId:profile.id,questionId:id})});
+      images.push(photo.cloudImage.url);
+    }
+    return api('/api/questions',{id,text,images});
+  }
+  const form=new FormData();form.set('id',id);form.set('text',text);
+  for(const photo of photos)form.append('images',photo.file);
+  return api('/api/questions',form);
+}
 function connection(message) { document.querySelector('#live-status').textContent=message; }
 export function connectProfile(next) {
   profile=next; generation++;
@@ -33,7 +55,11 @@ export function connectProfile(next) {
     if (version!==generation) return;
     connection('מתחברים לקהילה…');
     try {
-      await api('/api/profile',profile);
+      registration=(async()=>{
+        await api('/api/profile',profile);
+        backendConfig=await api('/api/config');
+      })();
+      await registration;
       if (version!==generation) return;
       const active=new WebSocket(`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/live?id=${encodeURIComponent(profile.id)}`);
       socket=active;

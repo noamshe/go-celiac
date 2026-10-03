@@ -2,7 +2,7 @@ import { createIcons, Sprout, Camera, HandHeart, ArrowLeft, ArrowRight, HeartHan
 import './notifications.js';
 import './help.js';
 import './photos.js';
-import { api, connectProfile, currentState, requestId } from './live.js';
+import { connectProfile, currentState, requestId, submitQuestion } from './live.js';
 import './style.css';
 
 const icons = { Sprout, Camera, HandHeart, ArrowLeft, ArrowRight, HeartHandshake, ImagePlus, Images, X, UserRound, Check, Bell, Users, Factory, BadgeCheck, TriangleAlert, MessageSquare, CircleHelp, ChevronLeft };
@@ -166,12 +166,8 @@ document.querySelector('#ask-form').addEventListener('submit', async event => {
   submit.disabled = true;
   askStatus.textContent = 'שולחים את השאלה…';
   try {
-    const form = new FormData();
     pendingQuestionId ||= requestId();
-    form.set('id',pendingQuestionId);
-    form.set('text',document.querySelector('#question-text').value.trim());
-    for (const photo of photos) form.append('images',photo.file);
-    await api('/api/questions',form);
+    await submitQuestion(pendingQuestionId,document.querySelector('#question-text').value.trim(),photos);
     pendingQuestionId=null;
     photos.forEach(photo=>URL.revokeObjectURL(photo.url));
     photos.length=0; previews.replaceChildren(); uploadStatus.textContent='';

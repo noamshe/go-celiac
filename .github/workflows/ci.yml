@@ -16,6 +16,7 @@ jobs:
       - run: npx playwright install --with-deps chrome
       - run: npm run build
       - run: npm run test:live
+      - run: npm run test:cloud
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
